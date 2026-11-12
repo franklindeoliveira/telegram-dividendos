@@ -203,6 +203,7 @@ def enviar_telegram(mensagens):
 
     token = os.environ["TELEGRAM_BOT_TOKEN"]
     chat_id = os.environ["TELEGRAM_CHAT_ID"]
+    message_thread_id = os.environ["TELEGRAM_MESSAGE_THREAD_ID"]
 
     url = TELEGRAM_API.format(token)
 
@@ -212,7 +213,7 @@ def enviar_telegram(mensagens):
             url,
             json={
                 "chat_id": chat_id,
-                "message_thread_id": int(os.environ["TELEGRAM_MESSAGE_THREAD_ID"]),
+                "message_thread_id": message_thread_id,
                 "text": mensagem,
                 "parse_mode": "HTML"
             },
