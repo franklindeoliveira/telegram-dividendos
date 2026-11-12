@@ -16,6 +16,7 @@ CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 
 
 
+
 def buscar_proventos():
     response = requests.get(
         URL,
@@ -24,43 +25,85 @@ def buscar_proventos():
     )
     response.raise_for_status()
 
-    html = response.text
-    soup = BeautifulSoup(html, "html.parser")
+    soup = BeautifulSoup(response.text, "html.parser")
 
-    print("===== DIAGNOSTICO DA AGENDA =====")
-    print("Tamanho HTML:", len(html))
-    print("Quantidade de tabelas:", len(soup.find_all("table")))
+    proventos = []
 
-    # Procura ocorrências relevantes no HTML original.
-    termos = [
-        "Data Com",
-        "data_com",
-        "data-com",
-        "Dividendos",
-        "JSCP",
-        "BBDC3",
-        "RANI3",
-    ]
+    # Localiza as linhas que possuem o atributo ticker-name.
+    linhas = soup.select("tr[ticker-name]")
 
-    for termo in termos:
-        posicoes = [
-            m.start()
-            for m in re.finditer(re.escape(termo), html, re.IGNORECASE)
+    for linha in linhas:
+        ticker = linha.get("ticker-name", "").strip().upper()
+
+        # Datas e tipo do provento estão nos elementos table-field.
+        campos = [
+            campo.get_text(" ", strip=True)
+            for campo in linha.select("span.table-field")
         ]
 
-        print(f"\n===== {termo}: {len(posicoes)} ocorrencias =====")
+        # Valor do provento.
+        elemento_valor = linha.select_one("span.payment-price")
 
-        for pos in posicoes[:3]:
-            print(html[max(0, pos-300):pos+700])
+        if not elemento_valor or len(campos) < 3:
+            continue
 
-    # Inspeciona as primeiras linhas das tabelas.
-    for indice, tabela in enumerate(soup.find_all("table")[:10]):
-        print(f"\n===== TABELA {indice} =====")
+        data_com = campos[0]
+        pagamento = campos[1]
+        tipo = campos[2].upper()
 
-        for linha in tabela.find_all("tr")[:5]:
-            print(linha.get_text(" | ", strip=True))
+        valor = elemento_valor.get_text(" ", strip=True)
+        valor = valor.replace("R$", "").strip()
 
-    raise RuntimeError("Diagnostico concluido.")
+        try:
+            datetime.strptime(data_com, "%d/%m/%y")
+            datetime.strptime(pagamento, "%d/%m/%y")
+        except ValueError:
+            continue
+
+        if not ticker or not valor:
+            continue
+
+        proventos.append({
+            "ticker": ticker,
+            "data_com": data_com,
+            "pagamento": pagamento,
+            "tipo": tipo,
+            "valor": valor,
+        })
+
+    # Evita registros duplicados.
+    unicos = {}
+
+    for item in proventos:
+        chave = (
+            item["ticker"],
+            item["data_com"],
+            item["pagamento"],
+            item["tipo"],
+            item["valor"],
+        )
+        unicos[chave] = item
+
+    proventos = list(unicos.values())
+
+    if not proventos:
+        raise RuntimeError(
+            "Nenhum provento encontrado nas linhas da tabela HTML."
+        )
+
+    proventos.sort(
+        key=lambda item: datetime.strptime(
+            item["pagamento"], "%d/%m/%y"
+        )
+    )
+
+    print(f"Total de proventos encontrados: {len(proventos)}")
+
+    for item in proventos[:5]:
+        print(item)
+
+    return proventos
+
 
 
 
