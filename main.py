@@ -3,39 +3,39 @@ import os
 import requests
 
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from html import escape
 from bs4 import BeautifulSoup
 
 
-# ============================================================
-# CONFIGURAÇÕES
-# ============================================================
-
 URL = "https://investidor10.com.br/acoes/dividendos/"
 
-TELEGRAM_API = "https://api.telegram.org"
+TELEGRAM_API = "https://api.telegram.org/bot{}/sendMessage"
 
-TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
-CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
+MAX_MESSAGE_SIZE = 3900
 
+MESES = {
+    "01": "janeiro",
+    "02": "fevereiro",
+    "03": "marco",
+    "04": "abril",
+    "05": "maio",
+    "06": "junho",
+    "07": "julho",
+    "08": "agosto",
+    "09": "setembro",
+    "10": "outubro",
+    "11": "novembro",
+    "12": "dezembro"
+}
 
-# ============================================================
-# BUSCA DOS PROVENTOS NO INVESTIDOR10
-# ============================================================
 
 def buscar_proventos():
-    print("Consultando agenda de dividendos...")
-
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 Chrome/120.0 Safari/537.36"
-        )
-    }
-
     resposta = requests.get(
         URL,
-        headers=headers,
+        headers={
+            "User-Agent": "Mozilla/5.0"
+        },
         timeout=30
     )
 
@@ -43,55 +43,33 @@ def buscar_proventos():
 
     soup = BeautifulSoup(resposta.text, "html.parser")
 
-    linhas = soup.select("tr[ticker-name]")
-
-    print(f"Linhas encontradas: {len(linhas)}")
-
     proventos = []
     registros_processados = set()
 
-    for linha in linhas:
-        ticker = linha.get("ticker-name", "").strip().upper()
+    for linha in soup.select("tr[ticker-name]"):
 
-        campos = [
-            campo.get_text(" ", strip=True)
-            for campo in linha.select("span.table-field")
-        ]
+        ticker = linha.get("ticker-name", "").strip()
 
-        elemento_valor = linha.select_one("span.payment-price")
+        campos = linha.select("span.table-field")
 
-        if not ticker or not elemento_valor or len(campos) < 3:
+        valor_elemento = linha.select_one("span.payment-price")
+
+        if not ticker or len(campos) < 3 or not valor_elemento:
             continue
 
-        data_com = campos[0]
-        pagamento = campos[1]
-        tipo = campos[2].upper()
+        data_com = campos[0].get_text(strip=True)
+        pagamento = campos[1].get_text(strip=True)
+        tipo = campos[2].get_text(strip=True)
 
-        valor = (
-            elemento_valor
-            .get_text(" ", strip=True)
-            .replace("R$", "")
-            .strip()
-        )
+        valor = valor_elemento.get_text(" ", strip=True)
 
-        # Valida as datas
         try:
             data_com_obj = datetime.strptime(data_com, "%d/%m/%y")
             pagamento_obj = datetime.strptime(pagamento, "%d/%m/%y")
         except ValueError:
             continue
 
-        registro = {
-            "ticker": ticker,
-            "tipo": tipo,
-            "valor": valor,
-            "data_com": data_com,
-            "pagamento": pagamento,
-            "pagamento_obj": pagamento_obj
-        }
-
-        # Evita registros duplicados
-        chave = (
+        registro = (
             ticker,
             data_com,
             pagamento,
@@ -99,197 +77,184 @@ def buscar_proventos():
             valor
         )
 
-        if chave in registros_processados:
+        if registro in registros_processados:
             continue
 
-        registros_processados.add(chave)
-        proventos.append(registro)
+        registros_processados.add(registro)
 
-    # Ordena pela data de pagamento
+        proventos.append({
+            "ticker": ticker,
+            "data_com": data_com,
+            "pagamento": pagamento,
+            "tipo": tipo,
+            "valor": valor,
+            "data_com_obj": data_com_obj,
+            "pagamento_obj": pagamento_obj
+        })
+
     proventos.sort(
-        key=lambda p: (
-            p["pagamento_obj"],
-            p["ticker"],
-            p["tipo"]
-        )
+        key=lambda item: item["pagamento_obj"]
     )
-
-    print(f"Total de proventos encontrados: {len(proventos)}")
-
-    if not proventos:
-        raise RuntimeError(
-            "Nenhum provento encontrado. "
-            "Verifique a estrutura da página do Investidor10."
-        )
 
     return proventos
 
 
-# ============================================================
-# GERAÇÃO DA TABELA
-# ============================================================
+def gerar_url_fonte(referencia):
+    mes, ano = referencia.split("/")
+
+    nome_mes = MESES[mes]
+
+    return (
+        f"https://investidor10.com.br/acoes/"
+        f"dividendos/{ano}/{nome_mes}/"
+    )
+
+
+def gerar_cabecalho(proventos, referencia):
+
+    url_fonte = gerar_url_fonte(referencia)
+
+    return (
+        "<b>AGENDA DE DIVIDENDOS</b>\n"
+        f"📅 Referência: {referencia}\n"
+        f"📌 Total de registros: {len(proventos)}\n"
+        f'🔎 Fonte: <a href="{url_fonte}">'
+        "Investidor10 – Agenda de Dividendos</a>\n"
+    )
+
+
+def formatar_linha(provento):
+
+    return (
+        f"{provento['ticker']:<8}"
+        f"{provento['tipo']:<12}"
+        f"{provento['valor']:>12}"
+        f"{provento['data_com'][:5]:>8}"
+        f"{provento['pagamento'][:5]:>12}"
+    )
+
 
 def gerar_mensagens(proventos, referencia):
 
-    cabecalho = (
-        f"<b>AGENDA DE DIVIDENDOS</b>\n"
-        f"📅 Referência: {referencia}\n"
-        f"📌 Total de registros: {len(proventos)}"
+    cabecalho = gerar_cabecalho(
+        proventos,
+        referencia
     )
 
     titulo_tabela = (
-        f"{'ATIVO':<7} "
-        f"{'TIPO':<10} "
-        f"{'VALOR':>10} "
-        f"{'COM':>5} "
-        f"{'PAGAMENTO':>9}"
+        f"{'ATIVO':<8}"
+        f"{'TIPO':<12}"
+        f"{'VALOR':>12}"
+        f"{'COM':>8}"
+        f"{'PAGAMENTO':>12}"
     )
 
-    separador = "-" * len(titulo_tabela)
-
-    linhas = []
-
-    for p in proventos:
-
-        ticker = p["ticker"]
-        tipo = p["tipo"].upper()
-        valor = f"R$ {p['valor']}"
-
-        data_com = p["data_com"][:5]
-        pagamento = p["pagamento"][:5]
-
-        linha = (
-            f"{ticker:<7} "
-            f"{tipo:<10} "
-            f"{valor:>10} "
-            f"{data_com:>5} "
-            f"{pagamento:>9}"
-        )
-
-        linhas.append(linha)
-
-    mensagens = []
-
-    bloco = [
+    linhas = [
         titulo_tabela,
-        separador
+        "-" * len(titulo_tabela)
     ]
 
-    for linha in linhas:
+    for provento in proventos:
+        linhas.append(formatar_linha(provento))
 
-        teste = bloco + [linha]
+    mensagens = []
+    linhas_atuais = [linhas[0], linhas[1]]
 
-        mensagem_teste = (
+    def montar_mensagem(linhas_tabela):
+        tabela = "\n".join(linhas_tabela)
+
+        return (
             cabecalho
-            + "\n<pre>"
-            + escape("\n".join(teste))
+            + "<pre>"
+            + escape(tabela)
             + "</pre>"
         )
 
-        # Mantém uma margem de segurança para o limite do Telegram
-        if len(mensagem_teste) > 3900 and len(bloco) > 2:
+    for linha in linhas[2:]:
 
-            mensagem = (
-                cabecalho
-                + "\n<pre>"
-                + escape("\n".join(bloco))
-                + "</pre>"
+        teste = montar_mensagem(
+            linhas_atuais + [linha]
+        )
+
+        if len(teste) > MAX_MESSAGE_SIZE:
+
+            mensagens.append(
+                montar_mensagem(linhas_atuais)
             )
 
-            mensagens.append(mensagem)
-
-            bloco = [
+            linhas_atuais = [
                 titulo_tabela,
-                separador
+                "-" * len(titulo_tabela),
+                linha
             ]
 
-        bloco.append(linha)
+        else:
+            linhas_atuais.append(linha)
 
-    # Adiciona o último bloco
-    if len(bloco) > 2:
-
-        mensagem = (
-            cabecalho
-            + "\n<pre>"
-            + escape("\n".join(bloco))
-            + "</pre>"
+    if len(linhas_atuais) > 2 or not mensagens:
+        mensagens.append(
+            montar_mensagem(linhas_atuais)
         )
-
-        mensagens.append(mensagem)
 
     return mensagens
 
 
-# ============================================================
-# ENVIO DAS MENSAGENS AO TELEGRAM
-# ============================================================
+def enviar_telegram(mensagens):
 
-def enviar_telegram(mensagem):
+    token = os.environ["TELEGRAM_BOT_TOKEN"]
+    chat_id = os.environ["TELEGRAM_CHAT_ID"]
 
-    url = f"{TELEGRAM_API}/bot{TOKEN}/sendMessage"
+    url = TELEGRAM_API.format(token)
 
-    dados = {
-        "chat_id": CHAT_ID,
-        "text": mensagem,
-        "parse_mode": "HTML",
-        "disable_web_page_preview": True
-    }
+    for mensagem in mensagens:
 
-    resposta = requests.post(
-        url,
-        data=dados,
-        timeout=30
-    )
-
-    resposta.raise_for_status()
-
-    resultado = resposta.json()
-
-    if not resultado.get("ok"):
-        raise RuntimeError(
-            f"Erro ao enviar mensagem: {resultado}"
+        resposta = requests.post(
+            url,
+            json={
+                "chat_id": chat_id,
+                "text": mensagem,
+                "parse_mode": "HTML"
+            },
+            timeout=30
         )
 
-    print("Mensagem enviada com sucesso!")
+        resposta.raise_for_status()
 
+        resultado = resposta.json()
 
-# ============================================================
-# EXECUÇÃO PRINCIPAL
-# ============================================================
+        if not resultado.get("ok"):
+            raise RuntimeError(
+                f"Erro no Telegram: {resultado}"
+            )
+
 
 def main():
 
-    print("=" * 50)
-    print("AGENDA DE DIVIDENDOS")
-    print("=" * 50)
+    print("Buscando agenda de dividendos...")
 
-    # Referência da execução
-    referencia = datetime.now().strftime("%m/%Y")
-
-    # Busca os proventos
     proventos = buscar_proventos()
 
-    # Gera as mensagens em formato de tabela
+    referencia = datetime.now(
+        ZoneInfo("America/Sao_Paulo")
+    ).strftime("%m/%Y")
+
+    print(f"Referência: {referencia}")
+    print(f"Total de registros: {len(proventos)}")
+
+    if not proventos:
+        print("Nenhum provento encontrado.")
+        return
+
     mensagens = gerar_mensagens(
         proventos,
         referencia
     )
 
-    print(f"Quantidade de mensagens: {len(mensagens)}")
+    print(f"Total de mensagens: {len(mensagens)}")
 
-    # Envia todas as partes ao Telegram
-    for indice, mensagem in enumerate(mensagens, start=1):
+    enviar_telegram(mensagens)
 
-        print(
-            f"Enviando mensagem "
-            f"{indice}/{len(mensagens)}..."
-        )
-
-        enviar_telegram(mensagem)
-
-    print("=" * 50)
-    print("PROCESSAMENTO CONCLUÍDO!")
-    print("=" * 50)
+    print("Agenda enviada com sucesso!")
 
 
 if __name__ == "__main__":
