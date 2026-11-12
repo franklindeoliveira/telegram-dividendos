@@ -212,6 +212,7 @@ def enviar_telegram(mensagens):
             url,
             json={
                 "chat_id": chat_id,
+                "message_thread_id": int(os.environ["TELEGRAM_MESSAGE_THREAD_ID"]),
                 "text": mensagem,
                 "parse_mode": "HTML"
             },
