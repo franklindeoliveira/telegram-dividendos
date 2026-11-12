@@ -146,7 +146,7 @@ def gerar_mensagens(proventos, referencia):
         f"{'TIPO':<12}"
         f"{'VALOR':>12}"
         f"{'COM':>8}"
-        f"{'PAGAMENTO':>12}"
+        f"{'PGTO':>12}"
     )
 
     linhas = [
