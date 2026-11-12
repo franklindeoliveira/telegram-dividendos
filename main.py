@@ -13,7 +13,6 @@ TELEGRAM_API = "https://api.telegram.org"
 TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 
-
 def buscar_proventos():
     response = requests.get(
         URL,
@@ -23,19 +22,22 @@ def buscar_proventos():
     response.raise_for_status()
 
     soup = BeautifulSoup(response.text, "html.parser")
+
+    # A página apresenta os dados em linhas de texto.
     texto = soup.get_text(" ", strip=True)
 
     padrao = re.compile(
-        r"([A-Z0-9]{4,6})\s+[^|]{0,180}\|\s*"
-        r"Data Com\s+(\d{2}/\d{2}/\d{2})\s+\|\s*"
-        r"Pgto\s+(\d{2}/\d{2}/\d{2})\s+\|\s*"
-        r"(Dividendos|JSCP)\s+R\$\s*([\d.,]+)",
+        r"\b([A-Z]{4}\d{1,2})\b"
+        r"\s+(.{1,100}?)"
+        r"\s*\|\s*Data Com\s+(\d{2}/\d{2}/\d{2})"
+        r"\s*\|\s*Pgto\s+(\d{2}/\d{2}/\d{2})"
+        r"\s*\|\s*(Dividendos|JSCP)\s+R\$\s*([\d.,]+)",
         re.IGNORECASE,
     )
 
     proventos = []
 
-    for ticker, data_com, pagamento, tipo, valor in padrao.findall(texto):
+    for ticker, empresa, data_com, pagamento, tipo, valor in padrao.findall(texto):
         proventos.append({
             "ticker": ticker,
             "data_com": data_com,
@@ -47,7 +49,7 @@ def buscar_proventos():
     if not proventos:
         raise RuntimeError(
             "Nenhum provento encontrado. "
-            "A estrutura da página pode ter mudado."
+            "Verifique a resposta HTML do Investidor10."
         )
 
     proventos.sort(
@@ -57,7 +59,6 @@ def buscar_proventos():
     )
 
     return proventos
-
 
 def enviar_telegram(mensagem):
     url = f"{TELEGRAM_API}/bot{TOKEN}/sendMessage"
