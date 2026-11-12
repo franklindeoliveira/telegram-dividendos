@@ -13,52 +13,36 @@ TELEGRAM_API = "https://api.telegram.org"
 TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 
+
 def buscar_proventos():
     response = requests.get(
         URL,
-        headers={"User-Agent": "Mozilla/5.0"},
+        headers={
+            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) "
+                          "AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+            "Accept-Language": "pt-BR,pt;q=0.9",
+        },
         timeout=30,
     )
-    response.raise_for_status()
+
+    print("===== DIAGNOSTICO INVESTIDOR10 =====")
+    print("Status HTTP:", response.status_code)
+    print("URL final:", response.url)
+    print("Content-Type:", response.headers.get("Content-Type"))
+    print("Tamanho HTML:", len(response.text))
 
     soup = BeautifulSoup(response.text, "html.parser")
 
-    # A página apresenta os dados em linhas de texto.
+    print("Titulo:", soup.title.get_text(strip=True) if soup.title else "Sem titulo")
+
     texto = soup.get_text(" ", strip=True)
 
-    padrao = re.compile(
-        r"\b([A-Z]{4}\d{1,2})\b"
-        r"\s+(.{1,100}?)"
-        r"\s*\|\s*Data Com\s+(\d{2}/\d{2}/\d{2})"
-        r"\s*\|\s*Pgto\s+(\d{2}/\d{2}/\d{2})"
-        r"\s*\|\s*(Dividendos|JSCP)\s+R\$\s*([\d.,]+)",
-        re.IGNORECASE,
-    )
+    print("===== INICIO DO TEXTO RECEBIDO =====")
+    print(texto[:5000])
+    print("===== FIM DO TEXTO =====")
 
-    proventos = []
+    raise RuntimeError("Diagnostico concluido. Verifique os logs.")
 
-    for ticker, empresa, data_com, pagamento, tipo, valor in padrao.findall(texto):
-        proventos.append({
-            "ticker": ticker,
-            "data_com": data_com,
-            "pagamento": pagamento,
-            "tipo": tipo.upper(),
-            "valor": valor,
-        })
-
-    if not proventos:
-        raise RuntimeError(
-            "Nenhum provento encontrado. "
-            "Verifique a resposta HTML do Investidor10."
-        )
-
-    proventos.sort(
-        key=lambda item: datetime.strptime(
-            item["pagamento"], "%d/%m/%y"
-        )
-    )
-
-    return proventos
 
 def enviar_telegram(mensagem):
     url = f"{TELEGRAM_API}/bot{TOKEN}/sendMessage"
