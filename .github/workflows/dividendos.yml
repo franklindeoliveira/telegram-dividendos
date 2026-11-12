@@ -3,7 +3,7 @@ name: Agenda de Dividendos
 
 on:
   schedule:
-    - cron: "0 12 1 * *"
+    - cron: "0 9 1 * *"
   workflow_dispatch:
 
 jobs:
