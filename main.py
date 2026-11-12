@@ -14,34 +14,54 @@ TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 
 
+
+
 def buscar_proventos():
     response = requests.get(
         URL,
-        headers={
-            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) "
-                          "AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
-            "Accept-Language": "pt-BR,pt;q=0.9",
-        },
+        headers={"User-Agent": "Mozilla/5.0"},
         timeout=30,
     )
+    response.raise_for_status()
 
-    print("===== DIAGNOSTICO INVESTIDOR10 =====")
-    print("Status HTTP:", response.status_code)
-    print("URL final:", response.url)
-    print("Content-Type:", response.headers.get("Content-Type"))
-    print("Tamanho HTML:", len(response.text))
+    html = response.text
+    soup = BeautifulSoup(html, "html.parser")
 
-    soup = BeautifulSoup(response.text, "html.parser")
+    print("===== DIAGNOSTICO DA AGENDA =====")
+    print("Tamanho HTML:", len(html))
+    print("Quantidade de tabelas:", len(soup.find_all("table")))
 
-    print("Titulo:", soup.title.get_text(strip=True) if soup.title else "Sem titulo")
+    # Procura ocorrências relevantes no HTML original.
+    termos = [
+        "Data Com",
+        "data_com",
+        "data-com",
+        "Dividendos",
+        "JSCP",
+        "BBDC3",
+        "RANI3",
+    ]
 
-    texto = soup.get_text(" ", strip=True)
+    for termo in termos:
+        posicoes = [
+            m.start()
+            for m in re.finditer(re.escape(termo), html, re.IGNORECASE)
+        ]
 
-    print("===== INICIO DO TEXTO RECEBIDO =====")
-    print(texto[:5000])
-    print("===== FIM DO TEXTO =====")
+        print(f"\n===== {termo}: {len(posicoes)} ocorrencias =====")
 
-    raise RuntimeError("Diagnostico concluido. Verifique os logs.")
+        for pos in posicoes[:3]:
+            print(html[max(0, pos-300):pos+700])
+
+    # Inspeciona as primeiras linhas das tabelas.
+    for indice, tabela in enumerate(soup.find_all("table")[:10]):
+        print(f"\n===== TABELA {indice} =====")
+
+        for linha in tabela.find_all("tr")[:5]:
+            print(linha.get_text(" | ", strip=True))
+
+    raise RuntimeError("Diagnostico concluido.")
+
 
 
 def enviar_telegram(mensagem):
